@@ -15,7 +15,7 @@ from twisted.web.client import ResponseFailed
 
 from scrapy import signals
 from scrapy.crawler import Crawler
-from scrapy.exceptions import IgnoreRequest, NotConfigured
+from scrapy.exceptions import IgnoreRequest, NotConfigured, CloseSpider
 from scrapy.http.request import Request
 from scrapy.http.response import Response
 from scrapy.settings import Settings
@@ -43,6 +43,8 @@ class TimeMachineMiddleware:
         if not settings.getbool("TIME_MACHINE_ENABLED"):
             raise NotConfigured
         self.storage = load_object(settings["TIME_MACHINE_STORAGE"])(settings)
+        self.retrieve = settings.getbool("TIME_MACHINE_RETRIEVE")
+        self.storage.retrieve = self.retrieve
         self.stats = stats
 
     @classmethod
@@ -63,12 +65,10 @@ class TimeMachineMiddleware:
     def process_request(self, request: Request, spider: Spider) -> Optional[Response]:
         # Look for cached response and check if expired
         snapshotresponse = self.storage.retrieve_response(spider, request)
-        if snapshotresponse is None:
-            self.stats.inc_value("timemachine/miss", spider=spider)
-            if self.ignore_missing:
-                self.stats.inc_value("httpcache/ignore", spider=spider)
-                raise IgnoreRequest("Ignored request not in cache: %s" % request)
-            return None  # first time request
+        if self.retrieve and not snapshotresponse:
+            raise CloseSpider(
+                "Unknown request! Did you modify the spider request chain?"
+            )
 
         # Keep a reference to snapshot response to avoid a second cache lookup on
         # process_response hook
@@ -80,9 +80,9 @@ class TimeMachineMiddleware:
         self, request: Request, response: Response, spider: Spider
     ) -> Response:
         # Do not validate first-hand responses
-        cachedresponse = request.meta.pop("cached_response", None)
+        cachedresponse = request.meta.pop("snapshot_response", None)
         if cachedresponse is None:
-            self.stats.inc_value("httpcache/firsthand", spider=spider)
+            self.stats.inc_value("time_machine/store", spider=spider)
             self._cache_response(spider, response, request, cachedresponse)
             return response
 

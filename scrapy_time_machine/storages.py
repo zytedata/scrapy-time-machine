@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import datetime
 from time import time
+import dbm
 
 import boto3
 from botocore.exceptions import ClientError
@@ -42,19 +43,15 @@ def configure_log_level(level):
 
 class S3DbmCacheStorage(DbmCacheStorage):
     def __init__(self, settings):
-        self.cachedir = data_path(settings["HTTPCACHE_DIR"], createdir=True)
-        self.expiration_secs = settings.getint("HTTPCACHE_EXPIRATION_SECS")
-        self.dbmodule = import_module(settings["HTTPCACHE_DBM_MODULE"])
-        self.db = None
-        urifmt = settings.get("S3CACHE_URI", "")
+        urifmt = settings.get("TIME_MACHINE_S3_URI", "")
         if not urifmt:
-            raise NotConfigured("S3CACHE_URI must be specified")
+            raise NotConfigured("TIME_MACHINE_S3_URI must be specified")
 
         # Parse URI
         u = urlparse(urifmt)
         self.keyname_fmt = u.path[1:]
         if not self.keyname_fmt:
-            raise NotConfigured("Could not get key name from S3CACHE_URI")
+            raise NotConfigured("Could not get key name from TIME_MACHINE_S3_URI")
 
         self.access_key = u.username or settings["AWS_ACCESS_KEY_ID"]
         if self.access_key is None:
@@ -66,9 +63,11 @@ class S3DbmCacheStorage(DbmCacheStorage):
 
         self.bucket_name = u.hostname
         if self.bucket_name is None:
-            raise NotConfigured("Could not get bucket name from S3CACHE_URI")
+            raise NotConfigured("Could not get bucket name from TIME_MACHINE_S3_URI")
 
-        self.retrieve = settings.getbool("S3CACHE_RETRIEVE")
+        self.cachedir = data_path(settings["TIME_MACHINE_DIR"], createdir=True)
+        self.db = None
+        self.retrieve = false
         self.use_gzip = settings.getbool("HTTPCACHE_GZIP")
 
         self._client = None
@@ -151,7 +150,7 @@ class S3DbmCacheStorage(DbmCacheStorage):
                     f"Failed to download key {self.keyname} on bucket {self.bucket_name}"
                 )
                 return
-        self.db = self.dbmodule.open(self._dbpath, "c")
+        self.db = dbm.open(self._dbpath, "c")
 
         logger.debug(
             "Using DBM cache storage in %(cachepath)s" % {"cachepath": self._dbpath},
