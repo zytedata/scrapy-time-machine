@@ -1,6 +1,9 @@
+import json
 import gzip
 import logging
 import os
+import subprocess
+from contextlib import suppress
 from datetime import datetime
 from time import time
 import dbm
@@ -8,10 +11,10 @@ import dbm
 import boto3
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
-from scrapy.exceptions import NotConfigured
-from scrapy.extensions.httpcache import DbmCacheStorage
+from scrapy.exceptions import NotConfigured, CloseSpider
 from scrapy.http import Headers
 from scrapy.responsetypes import responsetypes
+from scrapy.utils.project import data_path
 from scrapy.utils.request import request_fingerprint
 from scrapy.utils.url import canonicalize_url
 from scrapy_splash.utils import dict_hash
@@ -41,8 +44,86 @@ def configure_log_level(level):
                 logging.getLogger(name).setLevel(level)
 
 
-class S3DbmCacheStorage(DbmCacheStorage):
+class DbmTimeMachineStorage:
+
     def __init__(self, settings):
+        self.snapshot_dir = data_path(settings['TIME_MACHINE_DIR'], createdir=True)
+        self.db = None
+
+    def open_spider(self, spider):
+        """Create or load a previous database
+
+        If setting S3CACHE_RETRIEVE is True this method tries to download the database file from s3 and use it.
+        """
+        self._spider = spider
+        self._dbpath = os.path.join(self.snapshot_dir, "%s.db" % spider.name)
+
+        self._prepare_time_machine()
+
+        self.db = dbm.open(self._dbpath, "c")
+
+        logger.debug(
+            "Using DBM time machine storage in %(dbpath)s" % {"dbpath": self._dbpath},
+            extra={"spider": spider},
+        )
+
+    def _prepare_time_machine(self):
+        pass
+
+    def close_spider(self, spider):
+        self.db.close()
+
+        self._finish_time_machine()
+
+    def _finish_time_machine(self):
+        pass
+
+    def retrieve_response(self, spider, request):
+        data = self._read_data(spider, request)
+        if data is None:
+            return  # not stored
+        url = data["url"]
+        status = data["status"]
+        headers = Headers(data["headers"])
+        body = gzip.decompress(data["body"])
+        respcls = responsetypes.from_args(headers=headers, url=url)
+        response = respcls(url=url, headers=headers, status=status, body=body)
+        return response
+
+    def store_response(self, spider, request, response):
+        key = self._request_key(request)
+        data = {
+            "status": response.status,
+            "url": response.url,
+            "headers": dict(response.headers),
+            "body": gzip.compress(response.body)
+        }
+        data = pickle.dumps(data, protocol=2)
+        self.db["%s_data" % key] = data
+        self.db["%s_time" % key] = str(time())
+
+    def _read_data(self, spider, request):
+        key = self._request_key(request)
+        db = self.db
+        tkey = f'{key}_time'
+        if tkey not in db:
+            return  # not found
+
+        ts = db[tkey]
+        if 0 < self.expiration_secs < time() - float(ts):
+            return  # expired
+
+        return pickle.loads(db[f'{key}_data'])
+
+    def _request_key(self, request):
+        return request_fingerprint(request)
+
+
+class S3DbmTimeMachineStorage(DbmTimeMachineStorage):
+
+    def __init__(self, settings):
+        super().__init__(settings)
+
         urifmt = settings.get("TIME_MACHINE_S3_URI", "")
         if not urifmt:
             raise NotConfigured("TIME_MACHINE_S3_URI must be specified")
@@ -65,10 +146,7 @@ class S3DbmCacheStorage(DbmCacheStorage):
         if self.bucket_name is None:
             raise NotConfigured("Could not get bucket name from TIME_MACHINE_S3_URI")
 
-        self.cachedir = data_path(settings["TIME_MACHINE_DIR"], createdir=True)
-        self.db = None
-        self.retrieve = false
-        self.use_gzip = settings.getbool("HTTPCACHE_GZIP")
+        self.retrieve = False
 
         self._client = None
         self._spider = None
@@ -131,13 +209,7 @@ class S3DbmCacheStorage(DbmCacheStorage):
         self.client.download_fileobj(bucket, key, file)
         file.seek(0)
 
-    def open_spider(self, spider):
-        """Create or load a previous database
-
-        If setting S3CACHE_RETRIEVE is True this method tries to download the database file from s3 and use it.
-        """
-        self._spider = spider
-        self._dbpath = os.path.join(self.cachedir, "%s.db" % spider.name)
+    def _prepare_time_machine(self):
         if self.retrieve:
             try:
                 with open(self._dbpath, "wb") as db:
@@ -147,19 +219,14 @@ class S3DbmCacheStorage(DbmCacheStorage):
                 )
             except ClientError:
                 logger.error(
+                )
+                raise CloseSpider(
                     f"Failed to download key {self.keyname} on bucket {self.bucket_name}"
                 )
                 return
-        self.db = dbm.open(self._dbpath, "c")
 
-        logger.debug(
-            "Using DBM cache storage in %(cachepath)s" % {"cachepath": self._dbpath},
-            extra={"spider": spider},
-        )
-
-    def close_spider(self, spider):
-        """Store db cache in the S3 bucket"""
-        self.db.close()
+    def _finish_time_machine(self, spider):
+        """Store db snapshot in the S3 bucket"""
         if self.retrieve:
             logger.info("Will not store cache because this is a retrieval run.")
             return
@@ -175,36 +242,8 @@ class S3DbmCacheStorage(DbmCacheStorage):
         except (ClientError, FileNotFoundError) as e:
             logger.error(f"Error storing cache on key {self.keyname}: {e}")
 
-    def retrieve_response(self, spider, request):
-        """Custom retrieve_response to add support for gziped data and retrieve control"""
-        if not self.retrieve:
-            return
-        data = self._read_data(spider, request)
-        if data is None:
-            return  # not cached
-        url = data["url"]
-        status = data["status"]
-        headers = Headers(data["headers"])
-        body = gzip.decompress(data["body"]) if self.use_gzip else data["body"]
-        respcls = responsetypes.from_args(headers=headers, url=url)
-        response = respcls(url=url, headers=headers, status=status, body=body)
-        return response
 
-    def store_response(self, spider, request, response):
-        """Custom store_response to add support for gziped data"""
-        key = self._request_key(request)
-        data = {
-            "status": response.status,
-            "url": response.url,
-            "headers": dict(response.headers),
-            "body": gzip.compress(response.body) if self.use_gzip else response.body,
-        }
-        data = pickle.dumps(data, protocol=2)
-        self.db["%s_data" % key] = data
-        self.db["%s_time" % key] = str(time())
-
-
-class SplashAwareS3CacheStorage(S3CacheStorage):
+class SplashAwareS3DbmTimeMachineStorage(S3DbmTimeMachineStorage):
     def _request_key(self, request):
         """
         A custom `splash_request_fingerprint` that uses the original URL as the only
