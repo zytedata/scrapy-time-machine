@@ -45,9 +45,8 @@ def configure_log_level(level):
 
 
 class DbmTimeMachineStorage:
-
     def __init__(self, settings):
-        self.snapshot_dir = data_path(settings['TIME_MACHINE_DIR'], createdir=True)
+        self.snapshot_dir = data_path(settings["TIME_MACHINE_DIR"], createdir=True)
         self.db = None
 
     def open_spider(self, spider):
@@ -96,7 +95,7 @@ class DbmTimeMachineStorage:
             "status": response.status,
             "url": response.url,
             "headers": dict(response.headers),
-            "body": gzip.compress(response.body)
+            "body": gzip.compress(response.body),
         }
         data = pickle.dumps(data, protocol=2)
         self.db["%s_data" % key] = data
@@ -105,7 +104,7 @@ class DbmTimeMachineStorage:
     def _read_data(self, spider, request):
         key = self._request_key(request)
         db = self.db
-        tkey = f'{key}_time'
+        tkey = f"{key}_time"
         if tkey not in db:
             return  # not found
 
@@ -113,14 +112,13 @@ class DbmTimeMachineStorage:
         if 0 < self.expiration_secs < time() - float(ts):
             return  # expired
 
-        return pickle.loads(db[f'{key}_data'])
+        return pickle.loads(db[f"{key}_data"])
 
     def _request_key(self, request):
         return request_fingerprint(request)
 
 
 class S3DbmTimeMachineStorage(DbmTimeMachineStorage):
-
     def __init__(self, settings):
         super().__init__(settings)
 
@@ -218,8 +216,6 @@ class S3DbmTimeMachineStorage(DbmTimeMachineStorage):
                     f"Using cache downloaded from key {self.keyname} on bucket {self.bucket_name}"
                 )
             except ClientError:
-                logger.error(
-                )
                 raise CloseSpider(
                     f"Failed to download key {self.keyname} on bucket {self.bucket_name}"
                 )

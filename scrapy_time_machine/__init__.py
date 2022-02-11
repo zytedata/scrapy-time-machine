@@ -23,7 +23,9 @@ from scrapy.statscollectors import StatsCollector
 from scrapy.utils.misc import load_object
 
 
-TimeMachineMiddlewareTV = TypeVar("TimeMachineMiddlewareTV", bound="TimeMachineMiddleware")
+TimeMachineMiddlewareTV = TypeVar(
+    "TimeMachineMiddlewareTV", bound="TimeMachineMiddleware"
+)
 
 
 class TimeMachineMiddleware:
