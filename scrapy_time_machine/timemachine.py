@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, Type, TypeVar
 
 from twisted.internet import defer
@@ -12,6 +13,7 @@ from twisted.internet.error import (
 )
 from twisted.web.client import ResponseFailed
 
+
 from scrapy import signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import NotConfigured, CloseSpider
@@ -20,6 +22,7 @@ from scrapy.http.response import Response
 from scrapy.settings import Settings
 from scrapy.spiders import Spider
 from scrapy.statscollectors import StatsCollector
+from scrapy.utils.project import data_path
 from scrapy.utils.misc import load_object
 
 
@@ -46,6 +49,9 @@ class TimeMachineMiddleware:
     def __init__(self, settings: Settings, stats: StatsCollector) -> None:
         if not settings.getbool("TIME_MACHINE_ENABLED"):
             raise NotConfigured
+        self.uri = settings.get("TIME_MACHINE_URI")
+        if not self.uri:
+            raise NotConfigured("Missing TIME_MACHINE_URI setting")
         self.retrieve = settings.getbool("TIME_MACHINE_RETRIEVE")
         self.snapshot = settings.getbool("TIME_MACHINE_SNAPSHOT")
         try:
@@ -54,6 +60,7 @@ class TimeMachineMiddleware:
             raise NotConfigured("Time Machine Extension enabled but no storage found.")
         self.storage.retrieve = self.retrieve
         self.stats = stats
+        self.invalid = False
 
     @classmethod
     def from_crawler(
@@ -65,20 +72,26 @@ class TimeMachineMiddleware:
         return o
 
     def spider_opened(self, spider: Spider) -> None:
+        uri_params = self._get_uri_params(spider)
+        self.storage.set_uri(self.uri, uri_params, self.retrieve)
+        if self.retrieve and not self.storage.is_uri_valid():
+            self.invalid = True
+            raise CloseSpider(f"Invalid URI {self.uri}")
         self.storage.open_spider(spider)
 
     def spider_closed(self, spider: Spider) -> None:
         self.storage.close_spider(spider)
 
     def process_request(self, request: Request, spider: Spider) -> Optional[Response]:
+        if self.invalid:
+            return None
+
         if not self.retrieve:
             return None
 
         snapshotted_response = self.storage.retrieve_response(spider, request)
         if not snapshotted_response:
-            raise CloseSpider(
-                "Unknown request! Did you modify the spider request chain?"
-            )
+            raise CloseSpider("Unknown request! Did you modify the spider request chain?")
 
         snapshotted_response.flags.append("snapshot")
 
@@ -90,6 +103,9 @@ class TimeMachineMiddleware:
     def process_response(
         self, request: Request, response: Response, spider: Spider
     ) -> Response:
+        if self.invalid:
+            return response
+
         if not self.snapshot:
             return response
 
@@ -119,3 +135,16 @@ class TimeMachineMiddleware:
     ) -> None:
         self.stats.inc_value("time_machine/store", spider=spider)
         self.storage.store_response(spider, request, response)
+
+    
+    def _get_uri_params(
+        self,
+        spider: Spider,
+    ) -> dict:
+        params = {}
+        for k in dir(spider):
+            params[k] = getattr(spider, k)
+        utc_now = datetime.utcnow()
+        params['time'] = utc_now.replace(microsecond=0).isoformat().replace(':', '-')
+        params['batch_time'] = utc_now.isoformat().replace(':', '-')
+        return params
