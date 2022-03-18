@@ -54,6 +54,10 @@ class TimeMachineMiddleware:
             raise NotConfigured("Missing TIME_MACHINE_URI setting")
         self.retrieve = settings.getbool("TIME_MACHINE_RETRIEVE")
         self.snapshot = settings.getbool("TIME_MACHINE_SNAPSHOT")
+
+        if not (self.retrieve or self.snapshot):
+            raise NotConfigured("TIME_MACHINE_RETRIEVE or TIME_MACHINE_SNAPSHOT should be enabled")
+
         try:
             self.storage = load_object(settings["TIME_MACHINE_STORAGE"])(settings)
         except TypeError:
