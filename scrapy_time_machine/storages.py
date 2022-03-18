@@ -1,9 +1,10 @@
 import gzip
 import logging
-import os
 from time import time
 import dbm
+from w3lib.url import file_uri_to_path
 
+from os.path import basename, dirname, exists, join
 from scrapy.http import Headers
 from scrapy.responsetypes import responsetypes
 from scrapy.utils.project import data_path
@@ -19,21 +20,33 @@ class DbmTimeMachineStorage:
     time_machine_dir = "timemachine"
 
     def __init__(self, settings):
-        self.snapshot_dir = data_path(
-            settings.get("TIME_MACHINE_DIR", self.time_machine_dir), createdir=True
-        )
         self.db = None
+        self.snapshot_uri = None
+
+    def set_uri(self, uri, uri_params, retrieve=False):
+        self.snapshot_uri = file_uri_to_path(uri % uri_params)
+        path = dirname(self.snapshot_uri)
+        path = data_path(path, createdir=True)
+        db_name = basename(self.snapshot_uri)
+        self.snapshot_uri = join(path, db_name)
+
+    def is_uri_valid(self):
+        return exists(self.snapshot_uri)
 
     def open_spider(self, spider):
         self._spider = spider
-        self._dbpath = os.path.join(self.snapshot_dir, "%s.db" % spider.name)
 
         self._prepare_time_machine()
 
-        self.db = dbm.open(self._dbpath, "c")
+        if not self.snapshot_uri:
+            raise CloseSpider(
+                "Snapshot uri not configured."
+            )
+
+        self.db = dbm.open(self.snapshot_uri, "c")
 
         logger.debug(
-            "Using DBM time machine storage in %(dbpath)s" % {"dbpath": self._dbpath},
+            "Using DBM time machine storage in %(dbpath)s" % {"dbpath": self.snapshot_uri},
             extra={"spider": spider},
         )
 
@@ -41,7 +54,8 @@ class DbmTimeMachineStorage:
         pass
 
     def close_spider(self, spider):
-        self.db.close()
+        if self.db:
+            self.db.close()
 
         self._finish_time_machine()
 
