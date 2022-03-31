@@ -5,6 +5,7 @@ import dbm
 from w3lib.url import file_uri_to_path
 
 from os.path import basename, dirname, exists, join
+from scrapy.exceptions import CloseSpider
 from scrapy.http import Headers
 from scrapy.responsetypes import responsetypes
 from scrapy.utils.project import data_path
@@ -39,14 +40,13 @@ class DbmTimeMachineStorage:
         self._prepare_time_machine()
 
         if not self.snapshot_uri:
-            raise CloseSpider(
-                "Snapshot uri not configured."
-            )
+            raise CloseSpider("Snapshot uri not configured.")
 
         self.db = dbm.open(self.snapshot_uri, "c")
 
         logger.debug(
-            "Using DBM time machine storage in %(dbpath)s" % {"dbpath": self.snapshot_uri},
+            "Using DBM time machine storage in %(dbpath)s"
+            % {"dbpath": self.snapshot_uri},
             extra={"spider": spider},
         )
 
