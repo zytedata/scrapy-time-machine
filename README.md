@@ -12,4 +12,4 @@ With this extension you can save a snapshot of the site at every run to be used 
 
 ## Sample project
 
-There is a sample Scrapy project available at the `examples` directory.
+There is a sample Scrapy project available at the [examples](examples/project/) directory.
