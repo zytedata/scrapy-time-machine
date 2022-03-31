@@ -22,7 +22,6 @@ from scrapy.http.response import Response
 from scrapy.settings import Settings
 from scrapy.spiders import Spider
 from scrapy.statscollectors import StatsCollector
-from scrapy.utils.project import data_path
 from scrapy.utils.misc import load_object
 
 
@@ -56,7 +55,9 @@ class TimeMachineMiddleware:
         self.snapshot = settings.getbool("TIME_MACHINE_SNAPSHOT")
 
         if not (self.retrieve ^ self.snapshot):
-            raise NotConfigured("Either TIME_MACHINE_RETRIEVE or TIME_MACHINE_SNAPSHOT should be enabled")
+            raise NotConfigured(
+                "Either TIME_MACHINE_RETRIEVE or TIME_MACHINE_SNAPSHOT should be enabled"
+            )
 
         try:
             self.storage = load_object(settings["TIME_MACHINE_STORAGE"])(settings)
@@ -95,7 +96,9 @@ class TimeMachineMiddleware:
 
         snapshotted_response = self.storage.retrieve_response(spider, request)
         if not snapshotted_response:
-            raise CloseSpider("Unknown request! Did you modify the spider request chain?")
+            raise CloseSpider(
+                "Unknown request! Did you modify the spider request chain?"
+            )
 
         snapshotted_response.flags.append("snapshot")
 
@@ -140,7 +143,6 @@ class TimeMachineMiddleware:
         self.stats.inc_value("time_machine/store", spider=spider)
         self.storage.store_response(spider, request, response)
 
-    
     def _get_uri_params(
         self,
         spider: Spider,
@@ -149,6 +151,6 @@ class TimeMachineMiddleware:
         for k in dir(spider):
             params[k] = getattr(spider, k)
         utc_now = datetime.utcnow()
-        params['time'] = utc_now.replace(microsecond=0).isoformat().replace(':', '-')
-        params['batch_time'] = utc_now.isoformat().replace(':', '-')
+        params["time"] = utc_now.replace(microsecond=0).isoformat().replace(":", "-")
+        params["batch_time"] = utc_now.isoformat().replace(":", "-")
         return params
