@@ -1,6 +1,14 @@
 # scrapy-time-machine
 
+![PyPI](https://img.shields.io/pypi/v/scrapy-time-machine)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/scrapy-time-machine)
+![GitHub Workflow Status](https://img.shields.io/github/workflow/status/heylouiz/scrapy-time-machine/Unit%20tests)
+
 Run your spider with a previously crawled request chain.
+
+## Install
+
+    pip install scrapy-sticky-meta-params
 
 ## Why?
 
