@@ -8,7 +8,7 @@ Run your spider with a previously crawled request chain.
 
 ## Install
 
-    pip install scrapy-sticky-meta-params
+    pip install scrapy-time-machine
 
 ## Why?
 
