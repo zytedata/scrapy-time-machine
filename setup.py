@@ -14,7 +14,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Luiz Francisco Rodrigues da Silva",
     author_email="luizfrdasilva@gmail.com",
-    url="https://github.com/heylouiz/scrapy-time-machine",
+    url="https://github.com/zytedata/scrapy-time-machine",
     packages=["scrapy_time_machine"],
     platforms=["Any"],
     keywords="scrapy cache middleware",
