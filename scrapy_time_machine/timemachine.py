@@ -1,6 +1,4 @@
-import io
 from datetime import datetime
-from botocore.exceptions import ClientError
 from typing import Optional, Type, TypeVar
 
 from twisted.internet import defer
@@ -31,9 +29,6 @@ TimeMachineMiddlewareTV = TypeVar(
     "TimeMachineMiddlewareTV", bound="TimeMachineMiddleware"
 )
 
-TimeMachineS3MiddlewareTV = TypeVar(
-    "TimeMachineS3MiddlewareTV", bound="TimeMachineS3Middleware"
-)
 
 class TimeMachineMiddleware:
 
@@ -151,81 +146,6 @@ class TimeMachineMiddleware:
     def _get_uri_params(
         self,
         spider: Spider,
-    ) -> dict:
-        params = {}
-        for k in dir(spider):
-            params[k] = getattr(spider, k)
-        utc_now = datetime.utcnow()
-        params["time"] = utc_now.replace(microsecond=0).isoformat().replace(":", "-")
-        params["batch_time"] = utc_now.isoformat().replace(":", "-")
-        return params
-
-
-class TimeMachineS3Middleware:
-    def __init__(self, settings: Settings, stats: StatsCollector) -> None:
-        if not settings.getbool("TIME_MACHINE_S3_ENABLED"):
-            raise NotConfigured
-        self.uri = settings.get("TIME_MACHINE_S3_URI")
-        if not self.uri:
-            raise NotConfigured("Missing TIME_MACHINE_S3_URI setting")
-        self.retrieve = settings.getbool("TIME_MACHINE_RETRIEVE")
-        self.snapshot = settings.getbool("TIME_MACHINE_SNAPSHOT")
-
-        if not (self.retrieve ^ self.snapshot):
-            raise NotConfigured(
-                "Either TIME_MACHINE_RETRIEVE or TIME_MACHINE_SNAPSHOT should be enabled"
-            )
-
-        try:
-            self.storage = load_object(settings["TIME_MACHINE_STORAGE"])(settings)
-        except TypeError:
-            raise NotConfigured("Time Machine Extension enabled but no storage found.")
-        self.storage.retrieve = self.retrieve
-        self.stats = stats
-        self.invalid = False
-    @classmethod
-
-    def from_crawler(
-
-        cls: Type[TimeMachineS3MiddlewareTV], crawler: Crawler
-
-    ) -> TimeMachineS3MiddlewareTV:
-
-        return cls(crawler.settings, crawler.stats)
-
-
-    def spider_opened(self, spider: Spider) -> None:
-        uri_params = self._get_uri_params(spider)
-        self.storage.setS3bucket(self.uri, uri_params, self.retrieve)
-        if self.retrieve and not self.storage.is_uri_valid():
-            self.invalid = True
-            raise CloseSpider(f"Invalid URI {self.uri}")
-        self.storage.open_spider(spider)
-
-    def spider_closed(self, spider: Spider) -> None:
-        self.storage.close_spider(spider)
-    def process_request_for_s3(self, request: Request, spider: Spider) -> Optional[Response]:
-        if self.invalid:
-            return None
-
-        if request.meta.get("retry_times", 0) > 0:
-            self.stats.inc_value("time_machine/retrieve-failed-retry", spider=spider)
-            return None
-
-        stored_response = self.restore_response(request)
-
-        if not stored_response:
-            self.stats.inc_value("time_machine/retrieve-failed", spider=spider)
-            return None
-        else:
-            self.stats.inc_value("time_machine/retrieve", spider=spider)
-            return stored_response
-
-
-
-    def _get_uri_params(
-            self,
-            spider: Spider,
     ) -> dict:
         params = {}
         for k in dir(spider):

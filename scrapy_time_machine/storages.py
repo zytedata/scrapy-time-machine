@@ -1,56 +1,23 @@
-import io
 import gzip
-import boto3
-import pickle
 import logging
-import datetime
 from time import time
-from botocore.exceptions import ClientError
-from collections import OrderedDict
-from typing import Optional, Type, TypeVar, Dict
 import dbm
 from w3lib.url import file_uri_to_path
 
 from os.path import basename, dirname, exists, join
-from scrapy.exceptions import CloseSpider, NotConfigured
+from scrapy.exceptions import CloseSpider
 from scrapy.http import Headers
-from scrapy.http.request import Request
-from scrapy.http.response import Response
 from scrapy.responsetypes import responsetypes
 from scrapy.utils.project import data_path
 from scrapy.utils.request import request_fingerprint
-from scrapy.settings import Settings
-from scrapy.statscollectors import StatsCollector
 from six.moves import cPickle as pickle
+
 
 logger = logging.getLogger(__name__)
 
 
-def hash_request(request: Request) -> str:
-    return request_fingerprint(request)
-
-
-def serialize_response(response: Response) -> Dict:
-    return {
-        "status": response.status,
-        "url": response.url,
-        "headers": dict(response.headers),
-        "body": gzip.compress(response.body),
-
-    }
-
-
-def deserialize_response(response_serialized: Dict) -> Response:
-    url = response_serialized["url"]
-    status = response_serialized["status"]
-    headers = Headers(response_serialized["headers"])
-    body = gzip.decompress(response_serialized["body"])
-    respcls = responsetypes.from_args(headers=headers, url=url)
-    original_response = respcls(url=url, headers=headers, status=status, body=body)
-    return original_response
-
-
 class DbmTimeMachineStorage:
+
     time_machine_dir = "timemachine"
 
     def __init__(self, settings):
@@ -130,104 +97,3 @@ class DbmTimeMachineStorage:
 
     def _request_key(self, request):
         return request_fingerprint(request)
-
-
-class S3TimeMachineStorage:
-    def __init__(self, settings: Settings, stats: StatsCollector) -> None:
-        if not settings.get("ADDONS_AWS_ACCESS_KEY_ID"):
-            raise NotConfigured
-        if not settings.get("ADDONS_AWS_SECRET_ACCESS_KEY"):
-            raise NotConfigured
-        if not settings.get("ADDONS_S3_BUCKET"):
-            raise NotConfigured
-
-        self.stats = stats
-
-        self.start_date = datetime.datetime.now()
-
-        self.invalid = False
-
-        self.s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=settings.get("ADDONS_AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=settings.get("ADDONS_AWS_SECRET_ACCESS_KEY"),
-        )
-
-        self.s3_bucket = settings.get("ADDONS_S3_BUCKET")
-
-        self.response_cache: FixedSizedDict = FixedSizedDict(max_size=self.buffer_size)
-
-    def setS3bucket(self, uri_params, retrieve=False):
-        s3bucket = self.s3_bucket
-        return s3bucket
-    def is_uri_valid(self):
-        return exists(self.s3_bucket)
-    def _request_key(self, request):
-        return request_fingerprint(request)
-
-    def open_spider(self, spider):
-        self._spider = spider
-
-        self._prepare_time_machine()
-
-        if not self.s3_bucket:
-            raise CloseSpider("S3 bucket not configured.")
-
-        logger.debug(
-            "Using S3 time machine storage in %(s3path)s"
-            % {"s3path": self.s3_bucket},
-            extra={"spider": spider},
-        )
-
-    def _prepare_time_machine(self):
-        pass
-
-    def close_spider(self, spider):
-        self._finish_time_machine()
-
-    def _finish_time_machine(self):
-        pass
-
-    def restore_response(self, request: Request):
-        request_hash = hash_request(request)
-        if request_hash in self.response_cache:
-            return self.response_cache[request_hash]
-        s3_object_key = f"{self.s3_bucket}/{request_hash}"
-        binary_object_data = self.download_s3_object(s3_object_key)
-
-        if not binary_object_data:
-            logger.error(f"Hash {request_hash} not found for URL {request.url}")
-            return
-        serialized_response = pickle.loads(binary_object_data)
-        response = deserialize_response(serialized_response)
-        response.flags.append("cached_replay")
-        self.response_cache.append(request_hash, response)
-        return response
-
-    def download_s3_object(self, object_key):
-        data_buffer = io.BytesIO()
-        try:
-            self.s3_client.download_fileobj(self.s3_bucket, object_key, data_buffer)
-            return data_buffer.getvalue()
-        except ClientError:
-
-            return
-
-class FixedSizedDict:
-
-    def __init__(self, max_size):
-        self._data = OrderedDict()
-
-        self._max_size = max_size
-
-    def __contains__(self, data):
-        return (data in self._data)
-
-    def __getitem__(self, key):
-        return self._data[key]
-
-    def append(self, key, data):
-        self._data[key] = data
-
-        if len(self._data) > self._max_size:
-            self._data.popitem(last=False)
