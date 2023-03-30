@@ -3,6 +3,7 @@ import logging
 from time import time
 import dbm
 from w3lib.url import file_uri_to_path
+import boto3
 
 from os.path import basename, dirname, exists, join
 from scrapy.exceptions import CloseSpider
@@ -12,12 +13,10 @@ from scrapy.utils.project import data_path
 from scrapy.utils.request import request_fingerprint
 from six.moves import cPickle as pickle
 
-
 logger = logging.getLogger(__name__)
 
 
 class DbmTimeMachineStorage:
-
     time_machine_dir = "timemachine"
 
     def __init__(self, settings):
@@ -97,3 +96,36 @@ class DbmTimeMachineStorage:
 
     def _request_key(self, request):
         return request_fingerprint(request)
+
+
+class S3TimeMachineStorage(DbmTimeMachineStorage):
+    def __init__(self, settings):
+        self.s3 = settings.get("TIME_MACHINE_URI")
+        self.s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=settings.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=settings.get("AWS_SECRET_ACCESS_KEY"),
+        )
+
+    def store_response(self, spider, request, response):
+        key = self._request_key(request)
+        data = {
+            "status": response.status,
+            "url": response.url,
+            "headers": dict(response.headers),
+            "body": gzip.compress(response.body),
+        }
+        data = pickle.dumps(data, protocol=2)
+        self.s3_client.put_object(
+            Body=data,
+            Bucket=self.s3,
+            Key=key)
+
+    def retrieve_response(self, spider, request):
+        key = self._request_key(request)
+        s3_bucket = self.s3
+        if key not in s3_bucket:
+            return  # not found
+        response = self.s3_client.restore_object(s3_bucket, key)
+        return response
+
