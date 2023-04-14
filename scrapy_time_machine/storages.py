@@ -4,10 +4,12 @@ from time import time
 import dbm
 from w3lib.url import file_uri_to_path
 import boto3
+import tempfile
 
 from os.path import basename, dirname, exists, join
 from scrapy.exceptions import CloseSpider
 from scrapy.http import Headers
+from scrapy.settings import Settings
 from scrapy.responsetypes import responsetypes
 from scrapy.utils.project import data_path
 from scrapy.utils.request import request_fingerprint
@@ -107,25 +109,40 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             aws_secret_access_key=settings.get("AWS_SECRET_ACCESS_KEY"),
         )
 
-    def store_response(self, spider, request, response):
-        key = self._request_key(request)
-        data = {
-            "status": response.status,
-            "url": response.url,
-            "headers": dict(response.headers),
-            "body": gzip.compress(response.body),
-        }
-        data = pickle.dumps(data, protocol=2)
-        self.s3_client.put_object(
-            Body=data,
-            Bucket=self.s3,
-            Key=key)
+    def open_spider(self, spider):
+        self._spider = spider
 
-    def retrieve_response(self, spider, request):
-        key = self._request_key(request)
-        s3_bucket = self.s3
-        if key not in s3_bucket:
-            return  # not found
-        response = self.s3_client.restore_object(s3_bucket, key)
-        return response
+        self._prepare_time_machine()
+        self.snapshot_uri = self.s3
 
+        if not self.snapshot_uri:
+            raise CloseSpider("Snapshot uri not configured.")
+
+        self.db = open(self.local_path_to_db, "c")
+
+        logger.debug(
+            "Using S3 time machine storage in %(dbpath)s"
+            % {"dbpath": self.snapshot_uri},
+            extra={"spider": spider},
+        )
+
+    def _prepare_time_machine(self, settings):
+        if settings.get("TIME_MACHINE_RETRIEVE"):
+            # download db file from s3 snapshot_uri
+            compressed_db_file = self.s3_client.download_file('compressed_db_file', self.snapshot_uri)
+            # Decompress if needed
+            self.db = gzip.decompress(compressed_db_file)
+        else:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
+                self.db = file.name
+
+        #Save it as local path to DB file
+        self.local_path_to_db = self.db
+
+
+    def _finish_time_machine(self, settings):
+        if settings.get("TIME_MACHINE_SNAPSHOT"):
+            with open(self.local_path_to_db, mode='rb') as file:
+                self.db = file.read()
+                compressed_db_file = gzip.compress(self.db)
+                self.s3_client.upload_file(compressed_db_file, self.snapshot_uri)
