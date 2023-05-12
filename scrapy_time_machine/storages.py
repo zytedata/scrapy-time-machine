@@ -129,7 +129,11 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
     def _prepare_time_machine(self, settings):
         if settings.get("TIME_MACHINE_RETRIEVE"):
             # download db file from s3 snapshot_uri
-            compressed_db_file = self.s3_client.download_file('compressed_db_file', self.snapshot_uri)
+            s3bucket = self.s3.split("/")[2]
+            s3path = "/".join(self.snapshot_uri.split("/")[3:])
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
+                local_file = file.name
+            compressed_db_file = self.s3_client.download_file(s3bucket, s3path, local_file)
             # Decompress if needed
             self.db = gzip.decompress(compressed_db_file)
         else:
