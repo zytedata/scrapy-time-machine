@@ -35,10 +35,10 @@ class DbmTimeMachineStorage:
     def is_uri_valid(self):
         return exists(self.snapshot_uri)
 
-    def open_spider(self, spider):
+    def open_spider(self, spider, settings):
         self._spider = spider
 
-        self._prepare_time_machine()
+        self._prepare_time_machine(settings)
 
         if not self.snapshot_uri:
             raise CloseSpider("Snapshot uri not configured.")
@@ -51,16 +51,16 @@ class DbmTimeMachineStorage:
             extra={"spider": spider},
         )
 
-    def _prepare_time_machine(self):
+    def _prepare_time_machine(self, settings):
         pass
 
-    def close_spider(self, spider):
+    def close_spider(self, spider, settings):
         if self.db:
             self.db.close()
 
-        self._finish_time_machine()
+        self._finish_time_machine(settings)
 
-    def _finish_time_machine(self):
+    def _finish_time_machine(self, settings):
         pass
 
     def retrieve_response(self, spider, request):
@@ -109,16 +109,16 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             aws_secret_access_key=settings.get("AWS_SECRET_ACCESS_KEY"),
         )
 
-    def open_spider(self, spider):
+    def open_spider(self, spider, settings):
         self._spider = spider
 
-        self._prepare_time_machine()
+        self._prepare_time_machine(settings)
         self.snapshot_uri = self.s3
 
         if not self.snapshot_uri:
             raise CloseSpider("Snapshot uri not configured.")
 
-        self.db = open(self.local_path_to_db, "c")
+        self.db = open(self.local_path_to_db, "w")
 
         logger.debug(
             "Using S3 time machine storage in %(dbpath)s"
@@ -149,4 +149,5 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             with open(self.local_path_to_db, mode='rb') as file:
                 self.db = file.read()
                 compressed_db_file = gzip.compress(self.db)
-                self.s3_client.upload_file(compressed_db_file, self.snapshot_uri)
+                # Changed upload_file to put_object as upload_file didn't worked with gzip compressed file
+                self.s3_client.put_object(Bucket=self.snapshot_uri, Body=compressed_db_file, Key='requests')
