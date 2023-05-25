@@ -12,7 +12,17 @@ from scrapy.spiders import Spider
 from scrapy.utils.test import get_crawler
 
 from scrapy_time_machine.timemachine import TimeMachineMiddleware
-from scrapy_time_machine.storages import S3TimeMachineStorage
+
+import os
+
+import boto3
+import json
+import botocore
+import moto
+import pytest
+
+from moto.core import set_initial_no_auth_action_count
+
 
 class TimeMachineMiddlewareTest(unittest.TestCase):
     storage_class = "scrapy_time_machine.storages.DbmTimeMachineStorage"
@@ -152,12 +162,13 @@ class DefaultStorageTimeMachineMWTest(TimeMachineMiddlewareTest):
 
 class S3TimeMachineMiddlewareTest(unittest.TestCase):
     storage_class = "scrapy_time_machine.storages.S3TimeMachineStorage"
+    TEST_BUCKET = "test_bucket"
 
     def setUp(self):
         self.crawler = get_crawler(Spider)
         self.spider_name = "timemachine_spider"
         self.spider = self.crawler._create_spider(self.spider_name)
-        self.tmpdir = tempfile.mkdtemp()
+        self.s3 = "test_bucket"
         self.request = Request("http://www.example.com", headers={"User-Agent": "test"})
         self.response = Response(
             "http://www.example.com",
@@ -169,13 +180,12 @@ class S3TimeMachineMiddlewareTest(unittest.TestCase):
 
     def tearDown(self):
         self.crawler.stats.close_spider(self.spider, "")
-        shutil.rmtree(self.tmpdir)
 
     def _get_settings(self, **new_settings):
         settings = {
             "TIME_MACHINE_ENABLED": True,
             "TIME_MACHINE_STORAGE": self.storage_class,
-            "TIME_MACHINE_URI": self.tmpdir + "/test.db"
+            "TIME_MACHINE_URI": self.s3,
         }
         settings.update(new_settings)
         return Settings(settings)

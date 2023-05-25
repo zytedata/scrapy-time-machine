@@ -126,10 +126,14 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             extra={"spider": spider},
         )
 
+    def set_uri(self, uri, uri_params, retrieve=False):
+        self.snapshot_uri = self.s3
+
     def _prepare_time_machine(self, settings):
         if settings.get("TIME_MACHINE_RETRIEVE"):
             # download db file from s3 snapshot_uri
-            s3bucket = self.s3.split("/")[2]
+            s3bucket = self.set_uri
+            s3bucket = str(s3bucket).split("/")[2]
             s3path = "/".join(self.snapshot_uri.split("/")[3:])
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
                 local_file = file.name
@@ -140,14 +144,14 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
                 self.db = file.name
 
-        #Save it as local path to DB file
+        # Save it as local path to DB file
         self.local_path_to_db = self.db
-
 
     def _finish_time_machine(self, settings):
         if settings.get("TIME_MACHINE_SNAPSHOT"):
+            s3bucket = str(self.s3).split("/")[0]
             with open(self.local_path_to_db, mode='rb') as file:
                 self.db = file.read()
                 compressed_db_file = gzip.compress(self.db)
                 # Changed upload_file to put_object as upload_file didn't worked with gzip compressed file
-                self.s3_client.put_object(Bucket=self.snapshot_uri, Body=compressed_db_file, Key='requests')
+                self.s3_client.put_object(Bucket=s3bucket, Body=compressed_db_file, Key='requests')
