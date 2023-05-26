@@ -250,6 +250,7 @@ class S3TimeMachineMiddlewareTest(unittest.TestCase):
             "TIME_MACHINE_SNAPSHOT": True,
         }
         with self._middleware(**settings) as mw:
+            mw.storage._finish_time_machine = Mock()
             assert mw
 
 
