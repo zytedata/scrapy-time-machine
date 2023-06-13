@@ -154,4 +154,4 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
                 self.db = file.read()
                 compressed_db_file = gzip.compress(self.db)
                 # Changed upload_file to put_object as upload_file didn't worked with gzip compressed file
-                self.s3_client.put_object(Bucket=s3bucket, Body=compressed_db_file, Key='requests')
+                self.s3_client.upload_file(compressed_db_file, s3bucket)
