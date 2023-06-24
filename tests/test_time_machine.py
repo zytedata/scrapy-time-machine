@@ -189,11 +189,11 @@ class S3TimeMachineMiddlewareTest(unittest.TestCase):
     def _middleware(self, **new_settings):
         settings = self._get_settings(**new_settings)
         mw = TimeMachineMiddleware(settings, self.crawler.stats)
-        mw.spider_opened(self.spider, settings)
+        mw.spider_opened(self.spider)
         try:
             yield mw
         finally:
-            mw.spider_closed(self.spider, settings)
+            mw.spider_closed(self.spider)
 
     def assertEqualResponse(self, response1, response2):
         self.assertEqual(response1.url, response2.url)

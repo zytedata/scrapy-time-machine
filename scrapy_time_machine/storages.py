@@ -102,6 +102,8 @@ class DbmTimeMachineStorage:
 
 class S3TimeMachineStorage(DbmTimeMachineStorage):
     def __init__(self, settings):
+        self.db = None
+        self.snapshot_uri = None
         self.s3 = settings.get("TIME_MACHINE_URI")
         self.s3_client = boto3.client(
             "s3",
@@ -109,16 +111,30 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             aws_secret_access_key=settings.get("AWS_SECRET_ACCESS_KEY"),
         )
 
-    def open_spider(self, spider, settings):
+    def open_spider(self, spider, **kwargs):
+
+        settings = spider.settings
         self._spider = spider
 
         self._prepare_time_machine(settings)
         self.snapshot_uri = self.s3
+        s3bucket = self.snapshot_uri
+        print(f"s3bucket is {s3bucket}")
+        s3bucket = str(s3bucket).split("/")[2]
+        s3path = "/".join(self.snapshot_uri.split("/")[3:])
+        # This is the compressed file in memory:
+        local_file = tempfile.NamedTemporaryFile(delete=False)
+        compressed_db_file = self.s3_client.download_file(s3bucket, s3path, local_file.name)
+        # This is the decompressed file in memory:
+        decompressed_db_file = gzip.decompress(compressed_db_file.name)
+        # Create a local file and copy content
+        db_file = tempfile.NamedTemporaryFile(delete=False)
+        db_file.write(decompressed_db_file.read())
+        db_file.close()
 
-        if not self.snapshot_uri:
-            raise CloseSpider("Snapshot uri not configured.")
+        # Pass filename to dbm.open
+        self.db = dbm.open(db_file.name)
 
-        self.db = open(self.local_path_to_db, "w")
 
         logger.debug(
             "Using S3 time machine storage in %(dbpath)s"
@@ -128,6 +144,7 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
 
     def set_uri(self, uri, uri_params, retrieve=False):
         self.snapshot_uri = self.s3
+        return self.snapshot_uri
 
     def _prepare_time_machine(self, settings):
         if settings.get("TIME_MACHINE_RETRIEVE"):
@@ -135,23 +152,36 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             s3bucket = self.set_uri
             s3bucket = str(s3bucket).split("/")[2]
             s3path = "/".join(self.snapshot_uri.split("/")[3:])
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
-                local_file = file.name
+            local_file = tempfile.NamedTemporaryFile(delete=False)
             compressed_db_file = self.s3_client.download_file(s3bucket, s3path, local_file)
             # Decompress if needed
             self.db = gzip.decompress(compressed_db_file)
+            decompressed_db_file = gzip.decompress(compressed_db_file)
+
+            # Create a local file and copy content
+            db_file = tempfile.NamedTemporaryFile(delete=False)
+            db_file.write(decompressed_db_file.read())
+            db_file.close()
+
+            # Pass filename to dbm.open
+            self.db = dbm.open(db_file.name, "r")
         else:
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
-                self.db = file.name
+                file = file.name+'.db'
+                self.db = dbm.open(file, "c")
 
         # Save it as local path to DB file
-        self.local_path_to_db = self.db
+        self.path_to_local_file = self.db
 
     def _finish_time_machine(self, settings):
         if settings.get("TIME_MACHINE_SNAPSHOT"):
             s3bucket = str(self.s3).split("/")[0]
-            with open(self.local_path_to_db, mode='rb') as file:
-                self.db = file.read()
-                compressed_db_file = gzip.compress(self.db)
+            s3path = "/".join(self.snapshot_uri.split("/")[3:])
+            with open(self.path_to_local_file, mode='rb') as file:
+                compressed_db_file = gzip.compress(file.read())
+                # store again in temporal file
+                upload_file = tempfile.NamedTemporaryFile(delete=False)
+                upload_file.write(compressed_db_file.read())
+                upload_file.close()
                 # Changed upload_file to put_object as upload_file didn't worked with gzip compressed file
-                self.s3_client.upload_file(compressed_db_file, s3bucket)
+                self.s3_client.upload_file(upload_file, s3bucket, s3path)

@@ -76,15 +76,18 @@ class TimeMachineMiddleware:
         crawler.signals.connect(o.spider_closed, signal=signals.spider_closed)
         return o
 
-    def spider_opened(self, spider: Spider, settings) -> None:
+    def spider_opened(self, spider: Spider) -> None:
+        crawler = spider
         uri_params = self._get_uri_params(spider)
         self.storage.set_uri(self.uri, uri_params, self.retrieve)
         if self.retrieve and not self.storage.is_uri_valid():
             self.invalid = True
             raise CloseSpider(f"Invalid URI {self.uri}")
-        self.storage.open_spider(spider, settings)
+        self.storage.open_spider(spider)
 
-    def spider_closed(self, spider: Spider, settings) -> None:
+    def spider_closed(self, spider: Spider) -> None:
+        crawler = spider
+        settings = crawler.settings
         self.storage.close_spider(spider, settings)
 
     def process_request(self, request: Request, spider: Spider) -> Optional[Response]:

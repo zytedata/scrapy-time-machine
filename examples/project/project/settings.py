@@ -11,4 +11,5 @@ DOWNLOADER_MIDDLEWARES = {
 }
 
 TIME_MACHINE_ENABLED = True
-TIME_MACHINE_STORAGE = "scrapy_time_machine.storages.DbmTimeMachineStorage"
+TIME_MACHINE_STORAGE = "scrapy_time_machine.storages.S3TimeMachineStorage"
+
