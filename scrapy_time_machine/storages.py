@@ -5,11 +5,11 @@ import dbm
 from w3lib.url import file_uri_to_path
 import boto3
 import tempfile
+import os
 
 from os.path import basename, dirname, exists, join
 from scrapy.exceptions import CloseSpider
 from scrapy.http import Headers
-from scrapy.settings import Settings
 from scrapy.responsetypes import responsetypes
 from scrapy.utils.project import data_path
 from scrapy.utils.request import request_fingerprint
@@ -124,7 +124,8 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
         s3path = "/".join(self.snapshot_uri.split("/")[3:])
         # This is the compressed file in memory:
         local_file = tempfile.NamedTemporaryFile(delete=False)
-        compressed_db_file = self.s3_client.download_file(s3bucket, s3path, local_file.name)
+        self.s3_client.upload_file(local_file.name, s3bucket, s3path)
+        compressed_db_file = self.s3_client.download_file(s3bucket, s3path, gzip.compress(local_file))
         # This is the decompressed file in memory:
         decompressed_db_file = gzip.decompress(compressed_db_file.name)
         # Create a local file and copy content
@@ -134,7 +135,6 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
 
         # Pass filename to dbm.open
         self.db = dbm.open(db_file.name)
-
 
         logger.debug(
             "Using S3 time machine storage in %(dbpath)s"
@@ -155,7 +155,7 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             local_file = tempfile.NamedTemporaryFile(delete=False)
             compressed_db_file = self.s3_client.download_file(s3bucket, s3path, local_file)
             # Decompress if needed
-            self.db = gzip.decompress(compressed_db_file)
+            self.db = gzip.compress(compressed_db_file)
             decompressed_db_file = gzip.decompress(compressed_db_file)
 
             # Create a local file and copy content
@@ -167,7 +167,7 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             self.db = dbm.open(db_file.name, "r")
         else:
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
-                file = file.name+'.db'
+                file = file.name + '.db'
                 self.db = dbm.open(file, "c")
 
         # Save it as local path to DB file
@@ -177,7 +177,7 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
         if settings.get("TIME_MACHINE_SNAPSHOT"):
             s3bucket = str(self.s3).split("/")[0]
             s3path = "/".join(self.snapshot_uri.split("/")[3:])
-            with open(self.path_to_local_file, mode='rb') as file:
+            with dbm.open(self.db, mode='rb') as file:
                 compressed_db_file = gzip.compress(file.read())
                 # store again in temporal file
                 upload_file = tempfile.NamedTemporaryFile(delete=False)
