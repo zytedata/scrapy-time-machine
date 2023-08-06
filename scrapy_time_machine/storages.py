@@ -1,19 +1,19 @@
+import dbm
 import gzip
 import logging
-from time import time
-import dbm
-from w3lib.url import file_uri_to_path
-import boto3
-import tempfile
-import os
-
 from os.path import basename, dirname, exists, join
+from tempfile import NamedTemporaryFile
+from time import time
+from urllib import parse
+
+import boto3
 from scrapy.exceptions import CloseSpider
 from scrapy.http import Headers
 from scrapy.responsetypes import responsetypes
 from scrapy.utils.project import data_path
 from scrapy.utils.request import request_fingerprint
 from six.moves import cPickle as pickle
+from w3lib.url import file_uri_to_path
 
 logger = logging.getLogger(__name__)
 
@@ -104,84 +104,62 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
     def __init__(self, settings):
         self.db = None
         self.snapshot_uri = None
-        self.s3 = settings.get("TIME_MACHINE_URI")
+        self.s3_uri = settings.get("TIME_MACHINE_URI")
         self.s3_client = boto3.client(
             "s3",
             aws_access_key_id=settings.get("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=settings.get("AWS_SECRET_ACCESS_KEY"),
         )
+        self.retrieve_mode = settings.get("TIME_MACHINE_RETRIEVE")
+        self.snapshot_mode = settings.get("TIME_MACHINE_SNAPSHOT")
+
+    def get_netloc_and_path(self, s3_uri):
+        scheme, netloc, path, _, _, _ = parse.urlparse(s3_uri)
+        if not scheme == "s3":
+            raise ValueError(f"Provided uri scheme is not s3: {scheme}")
+
+        if not netloc or not path:
+            raise ValueError("bucket and path must not be empty")
+
+        return netloc, path
+
+    def is_uri_valid(self):
+        return bool(self.get_netloc_and_path(self.snapshot_uri))
+
+    def set_uri(self, uri, uri_params, retrieve=False):
+        self.snapshot_uri = self.s3_uri % uri_params
+        return self.snapshot_uri
 
     def open_spider(self, spider, **kwargs):
-
-        settings = spider.settings
-        self._spider = spider
-
-        self._prepare_time_machine(settings)
-        self.snapshot_uri = self.s3
-        s3bucket = self.snapshot_uri
-        print(f"s3bucket is {s3bucket}")
-        s3bucket = str(s3bucket).split("/")[2]
-        s3path = "/".join(self.snapshot_uri.split("/")[3:])
-        # This is the compressed file in memory:
-        local_file = tempfile.NamedTemporaryFile(delete=False)
-        self.s3_client.upload_file(local_file.name, s3bucket, s3path)
-        compressed_db_file = self.s3_client.download_file(s3bucket, s3path, gzip.compress(local_file))
-        # This is the decompressed file in memory:
-        decompressed_db_file = gzip.decompress(compressed_db_file.name)
-        # Create a local file and copy content
-        db_file = tempfile.NamedTemporaryFile(delete=False)
-        db_file.write(decompressed_db_file.read())
-        db_file.close()
-
-        # Pass filename to dbm.open
-        self.db = dbm.open(db_file.name)
-
+        self._prepare_time_machine(spider.settings)
         logger.debug(
-            "Using S3 time machine storage in %(dbpath)s"
-            % {"dbpath": self.snapshot_uri},
+            "Using S3 time machine storage in %(s3_uri)s" % {"s3_uri": self.s3_uri},
             extra={"spider": spider},
         )
 
-    def set_uri(self, uri, uri_params, retrieve=False):
-        self.snapshot_uri = self.s3
-        return self.snapshot_uri
-
     def _prepare_time_machine(self, settings):
-        if settings.get("TIME_MACHINE_RETRIEVE"):
+        # Create a local file to host the db data
+        tempfile = NamedTemporaryFile(mode="wb", suffix=".db", delete=False)
+        if self.retrieve_mode:
             # download db file from s3 snapshot_uri
-            s3bucket = self.set_uri
-            s3bucket = str(s3bucket).split("/")[2]
-            s3path = "/".join(self.snapshot_uri.split("/")[3:])
-            local_file = tempfile.NamedTemporaryFile(delete=False)
-            compressed_db_file = self.s3_client.download_file(s3bucket, s3path, local_file)
-            # Decompress if needed
-            self.db = gzip.compress(compressed_db_file)
-            decompressed_db_file = gzip.decompress(compressed_db_file)
-
-            # Create a local file and copy content
-            db_file = tempfile.NamedTemporaryFile(delete=False)
-            db_file.write(decompressed_db_file.read())
-            db_file.close()
-
-            # Pass filename to dbm.open
-            self.db = dbm.open(db_file.name, "r")
+            s3_bucket, s3_path = self.get_netloc_and_path(self.snapshot_uri)
+            self.s3_client.download_fileobj(s3_bucket, s3_path.lstrip('/'), tempfile)
+            self.db = dbm.open(tempfile.name, "c")
         else:
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as file:
-                file = file.name + '.db'
-                self.db = dbm.open(file, "c")
+            self.db = dbm.open(tempfile.name, "n")
 
-        # Save it as local path to DB file
-        self.path_to_local_file = self.db
+        # Save refence to DB underlaying file
+        self.path_to_local_file = tempfile
 
     def _finish_time_machine(self, settings):
-        if settings.get("TIME_MACHINE_SNAPSHOT"):
-            s3bucket = str(self.s3).split("/")[0]
-            s3path = "/".join(self.snapshot_uri.split("/")[3:])
-            with dbm.open(self.db, mode='rb') as file:
-                compressed_db_file = gzip.compress(file.read())
-                # store again in temporal file
-                upload_file = tempfile.NamedTemporaryFile(delete=False)
-                upload_file.write(compressed_db_file.read())
-                upload_file.close()
-                # Changed upload_file to put_object as upload_file didn't worked with gzip compressed file
-                self.s3_client.upload_file(upload_file, s3bucket, s3path)
+        if self.snapshot_mode:
+            # Flush local file content
+            self.path_to_local_file.flush()
+            # Upload file to s3
+            s3_bucket, s3_path = self.get_netloc_and_path(self.snapshot_uri)
+            self.s3_client.upload_file(
+                self.path_to_local_file.name, s3_bucket, s3_path.lstrip('/')
+            )
+            logger.info(f"Uploaded Time Machine file to {self.snapshot_uri}")
+            # Close and remove local db file
+            self.path_to_local_file.close()

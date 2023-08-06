@@ -1,6 +1,15 @@
 from datetime import datetime
 from typing import Optional, Type, TypeVar
 
+from scrapy import signals
+from scrapy.crawler import Crawler
+from scrapy.exceptions import CloseSpider, NotConfigured
+from scrapy.http.request import Request
+from scrapy.http.response import Response
+from scrapy.settings import Settings
+from scrapy.spiders import Spider
+from scrapy.statscollectors import StatsCollector
+from scrapy.utils.misc import load_object
 from twisted.internet import defer
 from twisted.internet.error import (
     ConnectError,
@@ -12,18 +21,6 @@ from twisted.internet.error import (
     TimeoutError,
 )
 from twisted.web.client import ResponseFailed
-
-
-from scrapy import signals
-from scrapy.crawler import Crawler
-from scrapy.exceptions import NotConfigured, CloseSpider
-from scrapy.http.request import Request
-from scrapy.http.response import Response
-from scrapy.settings import Settings
-from scrapy.spiders import Spider
-from scrapy.statscollectors import StatsCollector
-from scrapy.utils.misc import load_object
-
 
 TimeMachineMiddlewareTV = TypeVar(
     "TimeMachineMiddlewareTV", bound="TimeMachineMiddleware"
