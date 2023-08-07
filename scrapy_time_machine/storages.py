@@ -24,8 +24,10 @@ class DbmTimeMachineStorage:
     def __init__(self, settings):
         self.db = None
         self.snapshot_uri = None
+        self.retrieve_mode = settings.get("TIME_MACHINE_RETRIEVE")
+        self.snapshot_mode = settings.get("TIME_MACHINE_SNAPSHOT")
 
-    def set_uri(self, uri, uri_params, retrieve=False):
+    def set_uri(self, uri, uri_params):
         self.snapshot_uri = file_uri_to_path(uri % uri_params)
         path = dirname(self.snapshot_uri)
         path = data_path(path, createdir=True)
@@ -35,10 +37,10 @@ class DbmTimeMachineStorage:
     def is_uri_valid(self):
         return exists(self.snapshot_uri)
 
-    def open_spider(self, spider, settings):
+    def open_spider(self, spider):
         self._spider = spider
 
-        self._prepare_time_machine(settings)
+        self._prepare_time_machine()
 
         if not self.snapshot_uri:
             raise CloseSpider("Snapshot uri not configured.")
@@ -51,16 +53,16 @@ class DbmTimeMachineStorage:
             extra={"spider": spider},
         )
 
-    def _prepare_time_machine(self, settings):
+    def _prepare_time_machine(self):
         pass
 
-    def close_spider(self, spider, settings):
+    def close_spider(self, spider):
         if self.db:
             self.db.close()
 
-        self._finish_time_machine(settings)
+        self._finish_time_machine()
 
-    def _finish_time_machine(self, settings):
+    def _finish_time_machine(self):
         pass
 
     def retrieve_response(self, spider, request):
@@ -102,16 +104,13 @@ class DbmTimeMachineStorage:
 
 class S3TimeMachineStorage(DbmTimeMachineStorage):
     def __init__(self, settings):
-        self.db = None
-        self.snapshot_uri = None
+        super().__init__(settings)
         self.s3_uri = settings.get("TIME_MACHINE_URI")
         self.s3_client = boto3.client(
             "s3",
             aws_access_key_id=settings.get("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=settings.get("AWS_SECRET_ACCESS_KEY"),
         )
-        self.retrieve_mode = settings.get("TIME_MACHINE_RETRIEVE")
-        self.snapshot_mode = settings.get("TIME_MACHINE_SNAPSHOT")
 
     def get_netloc_and_path(self, s3_uri):
         scheme, netloc, path, _, _, _ = parse.urlparse(s3_uri)
@@ -129,18 +128,18 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
         except Exception:
             return False
 
-    def set_uri(self, uri, uri_params, retrieve=False):
+    def set_uri(self, uri, uri_params):
         self.snapshot_uri = self.s3_uri % uri_params
         return self.snapshot_uri
 
     def open_spider(self, spider, **kwargs):
-        self._prepare_time_machine(spider.settings)
+        self._prepare_time_machine()
         logger.debug(
             "Using S3 time machine storage in %(s3_uri)s" % {"s3_uri": self.s3_uri},
             extra={"spider": spider},
         )
 
-    def _prepare_time_machine(self, settings):
+    def _prepare_time_machine(self):
         # Create a local file to host the db data
         tempfile = NamedTemporaryFile(mode="wb", suffix=".db")
         if self.retrieve_mode:
@@ -154,7 +153,7 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
         # Save refence to DB underlaying file
         self.path_to_local_file = tempfile
 
-    def _finish_time_machine(self, settings):
+    def _finish_time_machine(self):
         if self.snapshot_mode:
             # Flush local file content
             self.path_to_local_file.flush()

@@ -28,7 +28,6 @@ TimeMachineMiddlewareTV = TypeVar(
 
 
 class TimeMachineMiddleware:
-
     DOWNLOAD_EXCEPTIONS = (
         defer.TimeoutError,
         TimeoutError,
@@ -74,18 +73,15 @@ class TimeMachineMiddleware:
         return o
 
     def spider_opened(self, spider: Spider) -> None:
-        crawler = spider
         uri_params = self._get_uri_params(spider)
-        self.storage.set_uri(self.uri, uri_params, self.retrieve)
+        self.storage.set_uri(self.uri, uri_params)
         if self.retrieve and not self.storage.is_uri_valid():
             self.invalid = True
             raise CloseSpider(f"Invalid URI {self.uri}")
         self.storage.open_spider(spider)
 
     def spider_closed(self, spider: Spider) -> None:
-        crawler = spider
-        settings = crawler.settings
-        self.storage.close_spider(spider, settings)
+        self.storage.close_spider(spider)
 
     def process_request(self, request: Request, spider: Spider) -> Optional[Response]:
         if self.invalid:

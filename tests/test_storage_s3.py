@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 from scrapy import Spider
@@ -63,7 +63,7 @@ def test_open_spider():
         with get_spider() as spider:
             storage.open_spider(spider)
 
-        storage._prepare_time_machine.assert_called_once_with(spider.settings)
+        storage._prepare_time_machine.assert_called_once()
 
 
 def test_prepare_time_machine_snapshot_mode():
@@ -79,7 +79,7 @@ def test_prepare_time_machine_snapshot_mode():
             ) as mock_tempfile_class:
                 # Mock the open method of the DB to avoid creating a real db
                 with patch("scrapy_time_machine.storages.dbm.open", mock_dbm_open):
-                    storage._prepare_time_machine(spider.settings)
+                    storage._prepare_time_machine()
                     mock_tempfile_class.assert_called_once_with(
                         mode="wb",
                         suffix=".db",
@@ -108,7 +108,7 @@ def test_prepare_time_machine_retrieve_mode():
                 with patch("scrapy_time_machine.storages.dbm.open", mock_dbm_open):
                     # Configure internal s3 uri value
                     storage.set_uri(storage.s3_uri, {})
-                    storage._prepare_time_machine(spider.settings)
+                    storage._prepare_time_machine()
                     mock_tempfile_class.assert_called_once_with(
                         mode="wb",
                         suffix=".db",
@@ -134,7 +134,7 @@ def test_finish_time_machine_snapshot_mode():
             storage.s3_client.download_fileobj = MagicMock()
 
             # Execute method
-            storage._finish_time_machine(spider.settings)
+            storage._finish_time_machine()
 
             # Check that mock were not called
             storage.path_to_local_file.flush.assert_not_called()
@@ -160,7 +160,7 @@ def test_finish_time_machine_retrieve_mode():
             storage.s3_client.upload_file = MagicMock()
 
             # Execute method
-            storage._finish_time_machine(spider.settings)
+            storage._finish_time_machine()
 
             # Check that mock were not called
             storage.path_to_local_file.flush.assert_called()
