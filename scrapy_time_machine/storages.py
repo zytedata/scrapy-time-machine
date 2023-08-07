@@ -124,7 +124,10 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
         return netloc, path
 
     def is_uri_valid(self):
-        return bool(self.get_netloc_and_path(self.snapshot_uri))
+        try:
+            return bool(self.get_netloc_and_path(self.snapshot_uri))
+        except Exception:
+            return False
 
     def set_uri(self, uri, uri_params, retrieve=False):
         self.snapshot_uri = self.s3_uri % uri_params
@@ -139,11 +142,11 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
 
     def _prepare_time_machine(self, settings):
         # Create a local file to host the db data
-        tempfile = NamedTemporaryFile(mode="wb", suffix=".db", delete=False)
+        tempfile = NamedTemporaryFile(mode="wb", suffix=".db")
         if self.retrieve_mode:
             # download db file from s3 snapshot_uri
             s3_bucket, s3_path = self.get_netloc_and_path(self.snapshot_uri)
-            self.s3_client.download_fileobj(s3_bucket, s3_path.lstrip('/'), tempfile)
+            self.s3_client.download_fileobj(s3_bucket, s3_path.lstrip("/"), tempfile)
             self.db = dbm.open(tempfile.name, "c")
         else:
             self.db = dbm.open(tempfile.name, "n")
@@ -158,8 +161,9 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
             # Upload file to s3
             s3_bucket, s3_path = self.get_netloc_and_path(self.snapshot_uri)
             self.s3_client.upload_file(
-                self.path_to_local_file.name, s3_bucket, s3_path.lstrip('/')
+                self.path_to_local_file.name, s3_bucket, s3_path.lstrip("/")
             )
             logger.info(f"Uploaded Time Machine file to {self.snapshot_uri}")
-            # Close and remove local db file
-            self.path_to_local_file.close()
+
+        # Close and remove local db file
+        self.path_to_local_file.close()
