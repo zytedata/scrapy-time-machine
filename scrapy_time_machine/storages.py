@@ -24,11 +24,12 @@ class DbmTimeMachineStorage:
     def __init__(self, settings):
         self.db = None
         self.snapshot_uri = None
-        self.retrieve_mode = settings.get("TIME_MACHINE_RETRIEVE")
-        self.snapshot_mode = settings.get("TIME_MACHINE_SNAPSHOT")
+        self.uri = settings.get("TIME_MACHINE_URI")
+        self.retrieve_mode = settings.getbool("TIME_MACHINE_RETRIEVE", False)
+        self.snapshot_mode = settings.getbool("TIME_MACHINE_SNAPSHOT", False)
 
-    def set_uri(self, uri, uri_params):
-        self.snapshot_uri = file_uri_to_path(uri % uri_params)
+    def set_uri(self, uri_params):
+        self.snapshot_uri = file_uri_to_path(self.uri % uri_params)
         path = dirname(self.snapshot_uri)
         path = data_path(path, createdir=True)
         db_name = basename(self.snapshot_uri)
@@ -38,23 +39,15 @@ class DbmTimeMachineStorage:
         return exists(self.snapshot_uri)
 
     def open_spider(self, spider):
-        self._spider = spider
-
+        # configure snapshot_uri
         self._prepare_time_machine()
+        logger.debug(f"Using Time machine storage with URI - {self.snapshot_uri}")
 
+    def _prepare_time_machine(self):
         if not self.snapshot_uri:
             raise CloseSpider("Snapshot uri not configured.")
 
         self.db = dbm.open(self.snapshot_uri, "c")
-
-        logger.debug(
-            "Using DBM time machine storage in %(dbpath)s"
-            % {"dbpath": self.snapshot_uri},
-            extra={"spider": spider},
-        )
-
-    def _prepare_time_machine(self):
-        pass
 
     def close_spider(self, spider):
         if self.db:
@@ -105,7 +98,6 @@ class DbmTimeMachineStorage:
 class S3TimeMachineStorage(DbmTimeMachineStorage):
     def __init__(self, settings):
         super().__init__(settings)
-        self.s3_uri = settings.get("TIME_MACHINE_URI")
         self.s3_client = boto3.client(
             "s3",
             aws_access_key_id=settings.get("AWS_ACCESS_KEY_ID"),
@@ -128,16 +120,8 @@ class S3TimeMachineStorage(DbmTimeMachineStorage):
         except Exception:
             return False
 
-    def set_uri(self, uri, uri_params):
-        self.snapshot_uri = self.s3_uri % uri_params
-        return self.snapshot_uri
-
-    def open_spider(self, spider, **kwargs):
-        self._prepare_time_machine()
-        logger.debug(
-            "Using S3 time machine storage in %(s3_uri)s" % {"s3_uri": self.s3_uri},
-            extra={"spider": spider},
-        )
+    def set_uri(self, uri_params):
+        self.snapshot_uri = self.uri % uri_params
 
     def _prepare_time_machine(self):
         # Create a local file to host the db data

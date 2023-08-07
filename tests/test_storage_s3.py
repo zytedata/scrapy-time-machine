@@ -25,7 +25,7 @@ def get_spider():
 
 def test_get_netloc_and_path():
     with get_storage(**{"TIME_MACHINE_URI": "s3://bucket/path/to/file"}) as storage:
-        bucket, path = storage.get_netloc_and_path(storage.s3_uri)
+        bucket, path = storage.get_netloc_and_path(storage.uri)
         assert bucket == "bucket"
         assert path == "/path/to/file"
 
@@ -33,37 +33,27 @@ def test_get_netloc_and_path():
         with get_storage(
             **{"TIME_MACHINE_URI": "no_s3://bucket/path/to/file"}
         ) as storage:
-            bucket, path = storage.get_netloc_and_path(storage.s3_uri)
+            bucket, path = storage.get_netloc_and_path(storage.uri)
 
     with pytest.raises(ValueError):
         with get_storage(**{"TIME_MACHINE_URI": "s3://bucket_without_path"}) as storage:
-            bucket, path = storage.get_netloc_and_path(storage.s3_uri)
+            bucket, path = storage.get_netloc_and_path(storage.uri)
 
 
 def test_set_uri():
     with get_storage(**{"TIME_MACHINE_URI": "s3://bucket/%(spider)s"}) as storage:
-        result = storage.set_uri(storage.s3_uri, {"spider": "dummy_spider"})
-        assert storage.snapshot_uri == result
-        assert result == "s3://bucket/dummy_spider"
+        storage.set_uri({"spider": "dummy_spider"})
+        assert storage.snapshot_uri == "s3://bucket/dummy_spider"
 
 
 def test_is_uri_valid():
     with get_storage(**{"TIME_MACHINE_URI": "s3://bucket/path/to/file"}) as storage:
-        storage.set_uri(storage.s3_uri, {})
+        storage.set_uri({})
         assert storage.is_uri_valid()
 
     with get_storage(**{"TIME_MACHINE_URI": "http://invalid_url"}) as storage:
-        storage.set_uri(storage.s3_uri, {})
+        storage.set_uri({})
         assert not storage.is_uri_valid()
-
-
-def test_open_spider():
-    with get_storage(**{"TIME_MACHINE_URI": "s3://bucket/path/to/file"}) as storage:
-        storage._prepare_time_machine = MagicMock()
-        with get_spider() as spider:
-            storage.open_spider(spider)
-
-        storage._prepare_time_machine.assert_called_once()
 
 
 def test_prepare_time_machine_snapshot_mode():
@@ -107,7 +97,7 @@ def test_prepare_time_machine_retrieve_mode():
             ) as mock_tempfile_class:
                 with patch("scrapy_time_machine.storages.dbm.open", mock_dbm_open):
                     # Configure internal s3 uri value
-                    storage.set_uri(storage.s3_uri, {})
+                    storage.set_uri({})
                     storage._prepare_time_machine()
                     mock_tempfile_class.assert_called_once_with(
                         mode="wb",
@@ -128,7 +118,7 @@ def test_finish_time_machine_snapshot_mode():
             }
         ) as storage:
             # Configure internal s3 uri value
-            storage.set_uri(storage.s3_uri, {})
+            storage.set_uri({})
             # Mock attributes used during the method execution
             storage.path_to_local_file = MagicMock()
             storage.s3_client.download_fileobj = MagicMock()
@@ -152,7 +142,7 @@ def test_finish_time_machine_retrieve_mode():
             }
         ) as storage:
             # Configure internal s3 uri value
-            storage.set_uri(storage.s3_uri, {})
+            storage.set_uri({})
             # Mock attributes used during the method execution
             storage.path_to_local_file = MagicMock()
             fake_path = "fake/path/to/local/file.db"
