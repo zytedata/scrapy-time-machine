@@ -96,7 +96,8 @@ class TimeMachineMiddleware:
 
         snapshotted_response.flags.append("snapshot")
 
-        # Keep a reference to snapshotted response to avoid a second lookup on process_response hook
+        # Keep a reference to snapshotted response to avoid
+        # a second lookup on process_response hook
         request.meta["snapshotted_response"] = snapshotted_response
 
         return snapshotted_response

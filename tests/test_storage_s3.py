@@ -57,107 +57,103 @@ def test_is_uri_valid():
 
 
 def test_prepare_time_machine_snapshot_mode():
-    with get_spider() as spider:
-        with get_storage(**{"TIME_MACHINE_URI": "s3://bucket/path/to/file"}) as storage:
-            mock_dbm_open = mock_open()
-            mock_tempfile = MagicMock()
-            mock_tempfile.name = "fake/path/to/local/file.db"
-            # Mock Tempfile creation to force having expected path
-            with patch(
-                "scrapy_time_machine.storages.NamedTemporaryFile",
-                return_value=mock_tempfile,
-            ) as mock_tempfile_class:
-                # Mock the open method of the DB to avoid creating a real db
-                with patch("scrapy_time_machine.storages.dbm.open", mock_dbm_open):
-                    storage._prepare_time_machine()
-                    mock_tempfile_class.assert_called_once_with(
-                        mode="wb",
-                        suffix=".db",
-                    )
-                    # DB was opened with the expected tempfile path and argument
-                    mock_dbm_open.assert_called_once_with(mock_tempfile.name, "n")
+    with get_storage(**{"TIME_MACHINE_URI": "s3://bucket/path/to/file"}) as storage:
+        mock_dbm_open = mock_open()
+        mock_tempfile = MagicMock()
+        mock_tempfile.name = "fake/path/to/local/file.db"
+        # Mock Tempfile creation to force having expected path
+        with patch(
+            "scrapy_time_machine.storages.NamedTemporaryFile",
+            return_value=mock_tempfile,
+        ) as mock_tempfile_class:
+            # Mock the open method of the DB to avoid creating a real db
+            with patch("scrapy_time_machine.storages.dbm.open", mock_dbm_open):
+                storage._prepare_time_machine()
+                mock_tempfile_class.assert_called_once_with(
+                    mode="wb",
+                    suffix=".db",
+                )
+                # DB was opened with the expected tempfile path and argument
+                mock_dbm_open.assert_called_once_with(mock_tempfile.name, "n")
 
 
 def test_prepare_time_machine_retrieve_mode():
-    with get_spider() as spider:
-        with get_storage(
-            **{
-                "TIME_MACHINE_URI": "s3://bucket/path/to/file",
-                "TIME_MACHINE_RETRIEVE": True,
-            }
-        ) as storage:
-            # Mock s3 method calls
-            storage.s3_client.download_fileobj = MagicMock()
-            mock_dbm_open = mock_open()
-            mock_tempfile = MagicMock()
-            mock_tempfile.name = "fake/path/to/local/file.db"
-            with patch(
-                "scrapy_time_machine.storages.NamedTemporaryFile",
-                return_value=mock_tempfile,
-            ) as mock_tempfile_class:
-                with patch("scrapy_time_machine.storages.dbm.open", mock_dbm_open):
-                    # Configure internal s3 uri value
-                    storage.set_uri({})
-                    storage._prepare_time_machine()
-                    mock_tempfile_class.assert_called_once_with(
-                        mode="wb",
-                        suffix=".db",
-                    )
-                    storage.s3_client.download_fileobj.assert_called_once_with(
-                        "bucket", "path/to/file", mock_tempfile
-                    )
-                    mock_dbm_open.assert_called_once_with(mock_tempfile.name, "c")
+    with get_storage(
+        **{
+            "TIME_MACHINE_URI": "s3://bucket/path/to/file",
+            "TIME_MACHINE_RETRIEVE": True,
+        }
+    ) as storage:
+        # Mock s3 method calls
+        storage.s3_client.download_fileobj = MagicMock()
+        mock_dbm_open = mock_open()
+        mock_tempfile = MagicMock()
+        mock_tempfile.name = "fake/path/to/local/file.db"
+        with patch(
+            "scrapy_time_machine.storages.NamedTemporaryFile",
+            return_value=mock_tempfile,
+        ) as mock_tempfile_class:
+            with patch("scrapy_time_machine.storages.dbm.open", mock_dbm_open):
+                # Configure internal s3 uri value
+                storage.set_uri({})
+                storage._prepare_time_machine()
+                mock_tempfile_class.assert_called_once_with(
+                    mode="wb",
+                    suffix=".db",
+                )
+                storage.s3_client.download_fileobj.assert_called_once_with(
+                    "bucket", "path/to/file", mock_tempfile
+                )
+                mock_dbm_open.assert_called_once_with(mock_tempfile.name, "c")
 
 
 def test_finish_time_machine_snapshot_mode():
-    with get_spider() as spider:
-        with get_storage(
-            **{
-                "TIME_MACHINE_URI": "s3://bucket/path/to/file",
-                "TIME_MACHINE_SNAPSHOT": False,
-            }
-        ) as storage:
-            # Configure internal s3 uri value
-            storage.set_uri({})
-            # Mock attributes used during the method execution
-            storage.path_to_local_file = MagicMock()
-            storage.s3_client.download_fileobj = MagicMock()
+    with get_storage(
+        **{
+            "TIME_MACHINE_URI": "s3://bucket/path/to/file",
+            "TIME_MACHINE_SNAPSHOT": False,
+        }
+    ) as storage:
+        # Configure internal s3 uri value
+        storage.set_uri({})
+        # Mock attributes used during the method execution
+        storage.path_to_local_file = MagicMock()
+        storage.s3_client.download_fileobj = MagicMock()
 
-            # Execute method
-            storage._finish_time_machine()
+        # Execute method
+        storage._finish_time_machine()
 
-            # Check that mock were not called
-            storage.path_to_local_file.flush.assert_not_called()
-            storage.s3_client.download_fileobj.assert_not_called()
+        # Check that mock were not called
+        storage.path_to_local_file.flush.assert_not_called()
+        storage.s3_client.download_fileobj.assert_not_called()
 
-            storage.path_to_local_file.close.assert_called_once()
+        storage.path_to_local_file.close.assert_called_once()
 
 
 def test_finish_time_machine_retrieve_mode():
-    with get_spider() as spider:
-        with get_storage(
-            **{
-                "TIME_MACHINE_URI": "s3://bucket/path/to/file",
-                "TIME_MACHINE_SNAPSHOT": True,
-            }
-        ) as storage:
-            # Configure internal s3 uri value
-            storage.set_uri({})
-            # Mock attributes used during the method execution
-            storage.path_to_local_file = MagicMock()
-            fake_path = "fake/path/to/local/file.db"
-            storage.path_to_local_file.name = fake_path
-            storage.s3_client.upload_file = MagicMock()
+    with get_storage(
+        **{
+            "TIME_MACHINE_URI": "s3://bucket/path/to/file",
+            "TIME_MACHINE_SNAPSHOT": True,
+        }
+    ) as storage:
+        # Configure internal s3 uri value
+        storage.set_uri({})
+        # Mock attributes used during the method execution
+        storage.path_to_local_file = MagicMock()
+        fake_path = "fake/path/to/local/file.db"
+        storage.path_to_local_file.name = fake_path
+        storage.s3_client.upload_file = MagicMock()
 
-            # Execute method
-            storage._finish_time_machine()
+        # Execute method
+        storage._finish_time_machine()
 
-            # Check that mock were not called
-            storage.path_to_local_file.flush.assert_called()
-            storage.s3_client.upload_file.assert_called_with(
-                fake_path,
-                "bucket",
-                "path/to/file",
-            )
+        # Check that mock were not called
+        storage.path_to_local_file.flush.assert_called()
+        storage.s3_client.upload_file.assert_called_with(
+            fake_path,
+            "bucket",
+            "path/to/file",
+        )
 
-            storage.path_to_local_file.close.assert_called_once()
+        storage.path_to_local_file.close.assert_called_once()

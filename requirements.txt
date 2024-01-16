@@ -111,5 +111,3 @@ zope-interface==5.4.0
 # setuptools
 
 pytest~=7.3.1
-boto3~=1.26.102
-setuptools~=67.3.3
