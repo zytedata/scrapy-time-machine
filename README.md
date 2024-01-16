@@ -25,7 +25,7 @@ To enable this middlware, add this information to your projects's `settings.py`:
     DOWNLOADER_MIDDLEWARES = {
         "scrapy_time_machine.timemachine.TimeMachineMiddleware": 901
     }
-    
+
     TIME_MACHINE_ENABLED = True
     TIME_MACHINE_STORAGE = "scrapy_time_machine.storages.DbmTimeMachineStorage"
 

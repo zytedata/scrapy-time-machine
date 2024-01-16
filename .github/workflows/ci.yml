@@ -1,37 +1,61 @@
-name: Unit tests
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-permissions:
-  contents: read
-
+name: Check test and code linting
+on: [push]
 jobs:
-  build:
-
+  test-and-lint:
     runs-on: ubuntu-latest
+    strategy:
+       fail-fast: false
+       matrix:
+         include:
+         - python-version: '3.8'
+           tox: min
+         - python-version: '3.9'
+         - python-version: '3.10'
+         - python-version: '3.11'
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
       with:
-        python-version: "3.10"
+        python-version: ${{ matrix.python-version }}
+    - uses: pre-commit/action@v3.0.0
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8 pytest
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
-    - name: Lint with flake8
+        python -m pip install tox codecov
+    - name: tox
       run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      run: |
-        python -m pytest
+        tox -e ${{ matrix.toxenv || 'py' }}
+
+    - name: Upload coverage.xml to codecov
+      if: ${{ matrix.python-version == 3.11 }}
+      uses: codecov/codecov-action@v1
+
+  publish:
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+    steps:
+      - uses: actions/checkout@master
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.10"
+
+      - name: Install package and dependencies
+        run:  >-
+          python -m pip install -e .
+
+      - name: Publish distribution 📦 to Private PyPI
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-west-2
+          AWS_DEFAULT_OUTPUT: json
+        run: |
+          pip install awscli
+          pip install wheel
+          python setup.py sdist bdist_wheel
+          aws s3 sync dist/ s3://pkgrepo.scrapinghub.com/python/packages/
