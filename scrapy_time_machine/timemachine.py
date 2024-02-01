@@ -1,6 +1,15 @@
 from datetime import datetime
 from typing import Optional, Type, TypeVar
 
+from scrapy import signals
+from scrapy.crawler import Crawler
+from scrapy.exceptions import CloseSpider, NotConfigured
+from scrapy.http.request import Request
+from scrapy.http.response import Response
+from scrapy.settings import Settings
+from scrapy.spiders import Spider
+from scrapy.statscollectors import StatsCollector
+from scrapy.utils.misc import load_object
 from twisted.internet import defer
 from twisted.internet.error import (
     ConnectError,
@@ -13,25 +22,12 @@ from twisted.internet.error import (
 )
 from twisted.web.client import ResponseFailed
 
-
-from scrapy import signals
-from scrapy.crawler import Crawler
-from scrapy.exceptions import NotConfigured, CloseSpider
-from scrapy.http.request import Request
-from scrapy.http.response import Response
-from scrapy.settings import Settings
-from scrapy.spiders import Spider
-from scrapy.statscollectors import StatsCollector
-from scrapy.utils.misc import load_object
-
-
 TimeMachineMiddlewareTV = TypeVar(
     "TimeMachineMiddlewareTV", bound="TimeMachineMiddleware"
 )
 
 
 class TimeMachineMiddleware:
-
     DOWNLOAD_EXCEPTIONS = (
         defer.TimeoutError,
         TimeoutError,
@@ -48,22 +44,19 @@ class TimeMachineMiddleware:
     def __init__(self, settings: Settings, stats: StatsCollector) -> None:
         if not settings.getbool("TIME_MACHINE_ENABLED"):
             raise NotConfigured
-        self.uri = settings.get("TIME_MACHINE_URI")
-        if not self.uri:
-            raise NotConfigured("Missing TIME_MACHINE_URI setting")
-        self.retrieve = settings.getbool("TIME_MACHINE_RETRIEVE")
-        self.snapshot = settings.getbool("TIME_MACHINE_SNAPSHOT")
-
-        if not (self.retrieve ^ self.snapshot):
-            raise NotConfigured(
-                "Either TIME_MACHINE_RETRIEVE or TIME_MACHINE_SNAPSHOT should be enabled"
-            )
 
         try:
             self.storage = load_object(settings["TIME_MACHINE_STORAGE"])(settings)
         except TypeError:
             raise NotConfigured("Time Machine Extension enabled but no storage found.")
-        self.storage.retrieve = self.retrieve
+        if not self.storage.uri:
+            raise NotConfigured("Missing TIME_MACHINE_URI setting")
+
+        if not (self.storage.retrieve_mode ^ self.storage.snapshot_mode):
+            raise NotConfigured(
+                "Either TIME_MACHINE_RETRIEVE or TIME_MACHINE_SNAPSHOT must be enabled"
+            )
+
         self.stats = stats
         self.invalid = False
 
@@ -78,8 +71,9 @@ class TimeMachineMiddleware:
 
     def spider_opened(self, spider: Spider) -> None:
         uri_params = self._get_uri_params(spider)
-        self.storage.set_uri(self.uri, uri_params, self.retrieve)
-        if self.retrieve and not self.storage.is_uri_valid():
+        self.storage.set_uri(uri_params)
+
+        if self.storage.retrieve_mode and not self.storage.is_uri_valid():
             self.invalid = True
             raise CloseSpider(f"Invalid URI {self.uri}")
         self.storage.open_spider(spider)
@@ -91,7 +85,7 @@ class TimeMachineMiddleware:
         if self.invalid:
             return None
 
-        if not self.retrieve:
+        if not self.storage.retrieve_mode:
             return None
 
         snapshotted_response = self.storage.retrieve_response(spider, request)
@@ -102,7 +96,8 @@ class TimeMachineMiddleware:
 
         snapshotted_response.flags.append("snapshot")
 
-        # Keep a reference to snapshotted response to avoid a second lookup on process_response hook
+        # Keep a reference to snapshotted response to avoid
+        # a second lookup on process_response hook
         request.meta["snapshotted_response"] = snapshotted_response
 
         return snapshotted_response
@@ -113,7 +108,7 @@ class TimeMachineMiddleware:
         if self.invalid:
             return response
 
-        if not self.snapshot:
+        if not self.storage.snapshot_mode:
             return response
 
         # Is a retrieve run

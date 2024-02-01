@@ -15,7 +15,6 @@ from scrapy_time_machine.timemachine import TimeMachineMiddleware
 
 
 class TimeMachineMiddlewareTest(unittest.TestCase):
-
     storage_class = "scrapy_time_machine.storages.DbmTimeMachineStorage"
 
     def setUp(self):
