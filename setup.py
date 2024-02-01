@@ -1,15 +1,13 @@
 from setuptools import setup
 
-from scrapy_time_machine import __version__
-
 with open("README.md") as f:
     readme = f.read()
 
 setup(
     name="scrapy-time-machine",
-    version=__version__,
+    version="1.0.1",
     license="MIT license",
-    description="A downloader middleware that stores the current request chain to be crawled at another time.",
+    description="A downloader middleware that stores the current request chain to be crawled at another time.",  # noqa
     long_description=readme,
     long_description_content_type="text/markdown",
     author="Luiz Francisco Rodrigues da Silva",
@@ -32,5 +30,5 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
     ],
-    install_requires=["Scrapy>=2.0.0"],
+    install_requires=["Scrapy>=2.0.0", "boto3"],
 )
