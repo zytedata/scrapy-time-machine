@@ -5,7 +5,7 @@ with open("README.md") as f:
 
 setup(
     name="scrapy-time-machine",
-    version="1.0.1",
+    version="1.1.0",
     license="MIT license",
     description="A downloader middleware that stores the current request chain to be crawled at another time.",  # noqa
     long_description=readme,
